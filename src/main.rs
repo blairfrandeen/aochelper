@@ -1,7 +1,7 @@
 use std::fs;
-use std::io;
 use std::path::PathBuf;
 
+use anyhow::{Context, Result};
 use glob::glob;
 use rusqlite::{Connection, OpenFlags};
 
@@ -10,30 +10,24 @@ const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.defaul
 /// Find the firefox cookies.sqlite file.
 /// This only works on linux with Firefox installed via Snap
 /// Only the default profile is currently supported
-fn find_firefox_cookie(cookie_glob: &str) -> Result<PathBuf, String> {
+fn find_firefox_cookie(cookie_glob: &str) -> Result<PathBuf> {
     // glob pattern is hard-coded, so single run should be enough to prove
     // that this can't fail
     let mut gb = glob(cookie_glob).expect("Failed to read glob pattern");
     match gb.next() {
-        Some(path) => {
-            Ok(path
-                .expect("Directory matched glob pattern but could not be read; check permissions"))
-        }
-        None => Err(String::from("Failed to find firefox cookie database")),
+        Some(path) => Ok(path.expect("Error with file path")),
+        None => Err(anyhow::anyhow!(
+            "Could not find Firefox cookies. No matches for {cookie_glob}."
+        )),
     }
 }
 
-#[derive(Debug)]
-enum ReadDbError {
-    Io(io::Error),
-    Sql(rusqlite::Error),
-}
-
-fn read_ff_host_cookie(db_path: PathBuf, hostname: &str) -> Result<String, ReadDbError> {
+fn read_ff_host_cookie(db_path: &PathBuf, hostname: &str) -> Result<String> {
     // We can't read the database if Firefox is running, so we make a temporary
     // copy that allows us to open it
     let tmp_db_path = PathBuf::from("/tmp/cookies-tmp.sqlite");
-    fs::copy(db_path, &tmp_db_path).map_err(ReadDbError::Io)?;
+    fs::copy(db_path, &tmp_db_path)
+        .with_context(|| format!("Failed to copy from {:?} to {:?}", &db_path, &tmp_db_path))?;
 
     let key: String;
     {
@@ -43,26 +37,33 @@ fn read_ff_host_cookie(db_path: PathBuf, hostname: &str) -> Result<String, ReadD
             &tmp_db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
-        .map_err(ReadDbError::Sql)?;
+        .with_context(|| format!("Failed to open database connection to {:?}.", &tmp_db_path))?;
         let mut query = conn
             .prepare(
                 "SELECT name, value FROM moz_cookies
             WHERE host=?1",
             )
-            .map_err(ReadDbError::Sql)?;
-        let mut res = query.query([hostname]).map_err(ReadDbError::Sql)?;
-        match res.next().map_err(ReadDbError::Sql)? {
-            Some(row) => key = row.get(1).map_err(ReadDbError::Sql)?,
-            None => panic!("No key found! Also need better error handling :("),
+            .with_context(|| format!("Error with SQLite database connection {:?}.", &conn))?;
+        let mut res = query
+            .query([hostname])
+            .expect("Error with sqlite query execution");
+        match res.next()? {
+            Some(row) => key = row.get(1)?,
+            None => return Err(anyhow::anyhow!("No cookie found for '{hostname}'. You may need to log in via the web browswer first.")),
         };
     }
-    fs::remove_file(tmp_db_path).map_err(ReadDbError::Io)?;
+    match fs::remove_file(&tmp_db_path) {
+        Ok(_) => {}
+        Err(err) => println!("Warning: Unable to remove {:?}: {:?}", &tmp_db_path, err),
+    }
     Ok(key)
 }
 
-fn main() {
-    let cookie_db_path = find_firefox_cookie(COOKIE_GLOB);
+fn main() -> Result<()> {
+    let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
     println!("{cookie_db_path:?}");
-    let cookie = read_ff_host_cookie(cookie_db_path.unwrap(), ".adventofcode.com");
+    let cookie = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
+        .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
     println!("{cookie:?}");
+    Ok(())
 }
