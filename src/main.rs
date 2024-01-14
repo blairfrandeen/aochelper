@@ -1,10 +1,10 @@
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use glob::glob;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response};
 use rusqlite::{Connection, OpenFlags};
 
 const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.default/cookies.sqlite";
@@ -103,6 +103,9 @@ fn main() -> Result<()> {
     println!("Found cookie for advent of code: {cookie:?}");
     let puzzle_url = build_puzzle_url(2023, 5)?;
     dbg!(&puzzle_url);
-    let _resp = get_puzzle_input(puzzle_url, &cookie)?;
+    let response = get_puzzle_input(puzzle_url, &cookie)?;
+    let mut puzzle_file = fs::File::create("output")?;
+    puzzle_file.write_all(response.as_bytes())?;
+
     Ok(())
 }
