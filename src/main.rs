@@ -1,11 +1,15 @@
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use glob::glob;
+use reqwest::blocking::Client;
 use rusqlite::{Connection, OpenFlags};
 
 const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.default/cookies.sqlite";
+// TODO: Use date functions to determine max year
+const MAX_YEAR: u16 = 2023;
 
 /// Find the firefox cookies.sqlite file.
 /// This only works on linux with Firefox installed via Snap
@@ -59,11 +63,46 @@ fn read_ff_host_cookie(db_path: &PathBuf, hostname: &str) -> Result<String> {
     Ok(key)
 }
 
+fn get_puzzle_input(puzzle_url: String, cookie: &str) -> Result<String> {
+    let client = Client::new();
+    let mut res = client
+        .get(&puzzle_url)
+        .header("cookie", format!("session={cookie}"))
+        .send()?;
+    let mut body = String::new();
+    res.read_to_string(&mut body)?;
+
+    match res.status() {
+        reqwest::StatusCode::OK => Ok(body),
+        reqwest::StatusCode::NOT_FOUND => Err(anyhow::anyhow!(
+            "Puzzle input for {} not found.",
+            &puzzle_url
+        )),
+        _ => Err(anyhow::anyhow!(
+            "Error getting puzzle input: {}\n{body}",
+            res.status()
+        )),
+    }
+}
+
+fn build_puzzle_url(year: u16, day: u8) -> Result<String> {
+    if year < 2015 || year > MAX_YEAR {
+        Err(anyhow::anyhow!("Invalid year: {year}"))
+    } else if day > 25 || day < 1 {
+        Err(anyhow::anyhow!("Invalid day: {day}"))
+    } else {
+        Ok(format!("https://adventofcode.com/{year}/day/{day}/input"))
+    }
+}
+
 fn main() -> Result<()> {
     let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
-    println!("{cookie_db_path:?}");
+    println!("Found Firefox cookies at {cookie_db_path:?}");
     let cookie = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
         .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
-    println!("{cookie:?}");
+    println!("Found cookie for advent of code: {cookie:?}");
+    let puzzle_url = build_puzzle_url(2023, 5)?;
+    dbg!(&puzzle_url);
+    let _resp = get_puzzle_input(puzzle_url, &cookie)?;
     Ok(())
 }
