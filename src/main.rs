@@ -106,10 +106,10 @@ struct Args {
 
 fn main() -> Result<()> {
     let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
-    println!("Found Firefox cookies at {cookie_db_path:?}");
+    // println!("Found Firefox cookies at {cookie_db_path:?}");
     let cookie = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
         .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
-    println!("Found cookie for advent of code: {cookie:?}");
+    // println!("Found cookie for advent of code: {cookie:?}");
     let args = Args::parse();
     let puzzle_url = build_puzzle_url(args.year, args.day)?;
     let response = get_puzzle_input(puzzle_url, &cookie)?;
