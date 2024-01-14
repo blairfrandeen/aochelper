@@ -3,8 +3,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use glob::glob;
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::Client;
 use rusqlite::{Connection, OpenFlags};
 
 const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.default/cookies.sqlite";
@@ -95,16 +96,25 @@ fn build_puzzle_url(year: u16, day: u8) -> Result<String> {
     }
 }
 
+/// Tool to download Advent of Code puzzle inputs
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    year: u16,
+    day: u8,
+}
+
 fn main() -> Result<()> {
     let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
     println!("Found Firefox cookies at {cookie_db_path:?}");
     let cookie = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
         .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
     println!("Found cookie for advent of code: {cookie:?}");
-    let puzzle_url = build_puzzle_url(2023, 5)?;
-    dbg!(&puzzle_url);
+    let args = Args::parse();
+    let puzzle_url = build_puzzle_url(args.year, args.day)?;
     let response = get_puzzle_input(puzzle_url, &cookie)?;
-    let mut puzzle_file = fs::File::create("output")?;
+    fs::create_dir_all("inputs")?;
+    let mut puzzle_file = fs::File::create(format!("inputs/{}.{}", args.year, args.day))?;
     puzzle_file.write_all(response.as_bytes())?;
 
     Ok(())
