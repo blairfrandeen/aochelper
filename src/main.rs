@@ -102,6 +102,10 @@ fn build_puzzle_url(year: u16, day: u8) -> Result<String> {
 struct Args {
     year: u16,
     day: u8,
+
+    /// Directory to which to write inputs
+    #[clap(short, long, value_name = "OUTPUT")]
+    output: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -113,8 +117,15 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let puzzle_url = build_puzzle_url(args.year, args.day)?;
     let response = get_puzzle_input(puzzle_url, &cookie)?;
-    fs::create_dir_all("inputs")?;
-    let mut puzzle_file = fs::File::create(format!("inputs/{}.{}", args.year, args.day))?;
+
+    let mut input_path = match args.output {
+        Some(dir) => dir,
+        None => PathBuf::from("inputs"),
+    };
+    fs::create_dir_all(&input_path)?;
+    input_path.push(format!("{}.{:02}", args.year, args.day));
+    dbg!(&input_path);
+    let mut puzzle_file = fs::File::create(input_path)?;
     puzzle_file.write_all(response.as_bytes())?;
 
     Ok(())
