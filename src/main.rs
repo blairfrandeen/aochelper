@@ -80,7 +80,8 @@ fn get_puzzle_input(puzzle_url: String, cookie: &str) -> Result<String> {
             "Puzzle input for {} not found.",
             &puzzle_url
         )),
-        _ => Err(anyhow::anyhow!(
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR => Err(anyhow::anyhow!("Invalid session key supplied. You may need to log into adventofcode.com with your browser again.")),
+        _  => Err(anyhow::anyhow!(
             "Error getting puzzle input: {}\n{body}",
             res.status()
         )),
@@ -110,6 +111,10 @@ struct Args {
     /// Directory to which to write inputs
     #[clap(short, long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
+
+    /// Session key, typically read from browser cookie
+    #[clap(short, long, value_name = "SESSION_KEY")]
+    session_key: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -128,11 +133,7 @@ fn read_config(config_path: PathBuf) -> Result<Config> {
 }
 
 fn main() -> Result<()> {
-    let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
     // println!("Found Firefox cookies at {cookie_db_path:?}");
-    let cookie = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
-        .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
-    // println!("Found cookie for advent of code: {cookie:?}");
     let args = Args::parse();
     let config = read_config(PathBuf::from("aochelper.toml"))?;
     let year = match args.year {
@@ -142,13 +143,30 @@ fn main() -> Result<()> {
             None => return Err(anyhow::anyhow!("No year specified!")),
         },
     };
+
+    let session_key = match args.session_key {
+        Some(key) => key,
+        None => match config.session_key {
+            Some(key) => key,
+            None => {
+                let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
+                let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com").with_context(
+                    || format!("Failed to read firefox cookies from {:?}", &cookie_db_path),
+                )?;
+                println!("Found cookie for advent of code: {key:?}");
+                key
+            }
+        },
+    };
     let puzzle_url = build_puzzle_url(year, args.day)?;
-    let response = get_puzzle_input(puzzle_url, &cookie)?;
-    dbg!(config);
+    let response = get_puzzle_input(puzzle_url, &session_key)?;
 
     let mut input_path = match args.output {
         Some(dir) => dir,
-        None => PathBuf::from("inputs"),
+        None => match config.output_path {
+            Some(dir) => dir,
+            None => PathBuf::from("inputs"),
+        },
     };
     fs::create_dir_all(&input_path)?;
     input_path.push(format!("{}.{:02}", year, args.day));
