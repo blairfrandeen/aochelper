@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use glob::glob;
 use reqwest::blocking::Client;
 use rusqlite::{Connection, OpenFlags};
@@ -100,21 +100,33 @@ fn build_puzzle_url(year: u16, day: u8) -> Result<String> {
 
 /// Tool to download Advent of Code puzzle inputs
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    day: u8,
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    /// Puzzle year if not supplied in aochelper.toml
-    #[clap(short, long, value_name = "YEAR")]
-    year: Option<u16>,
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Set a configuration variable
+    Set,
 
-    /// Directory to which to write inputs
-    #[clap(short, long, value_name = "OUTPUT")]
-    output: Option<PathBuf>,
+    /// Get puzzle input for a given day
+    Get {
+        day: u8,
 
-    /// Session key, typically read from browser cookie
-    #[clap(short, long, value_name = "SESSION_KEY")]
-    session_key: Option<String>,
+        /// Puzzle year if not supplied in aochelper.toml
+        #[clap(short, long, value_name = "YEAR")]
+        year: Option<u16>,
+
+        /// Directory to which to write inputs
+        #[clap(short, long, value_name = "OUTPUT")]
+        output: Option<PathBuf>,
+
+        /// Session key, typically read from browser cookie
+        #[clap(short, long, value_name = "SESSION_KEY")]
+        session_key: Option<String>,
+    },
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -134,45 +146,58 @@ fn read_config(config_path: PathBuf) -> Result<Config> {
 
 fn main() -> Result<()> {
     // println!("Found Firefox cookies at {cookie_db_path:?}");
-    let args = Args::parse();
-    let config = read_config(PathBuf::from("aochelper.toml"))?;
-    let year = match args.year {
-        Some(yr) => yr,
-        None => match config.year {
-            Some(yr) => yr,
-            None => return Err(anyhow::anyhow!("No year specified!")),
-        },
-    };
+    let args = Cli::parse();
+    match &args.command {
+        Commands::Set => {
+            todo!();
+        }
+        Commands::Get {
+            day,
+            year,
+            output,
+            session_key,
+        } => {
+            let config = read_config(PathBuf::from("aochelper.toml"))?;
+            let cmd_year = match year {
+                Some(yr) => *yr,
+                None => match &config.year {
+                    Some(yr) => *yr,
+                    None => return Err(anyhow::anyhow!("No year specified!")),
+                },
+            };
 
-    let session_key = match args.session_key {
-        Some(key) => key,
-        None => match config.session_key {
-            Some(key) => key,
-            None => {
-                let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
-                let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com").with_context(
-                    || format!("Failed to read firefox cookies from {:?}", &cookie_db_path),
-                )?;
-                println!("Found cookie for advent of code: {key:?}");
-                key
-            }
-        },
-    };
-    let puzzle_url = build_puzzle_url(year, args.day)?;
-    let response = get_puzzle_input(puzzle_url, &session_key)?;
+            let cmd_session_key = match session_key {
+                Some(key) => key.clone(),
+                None => match config.session_key {
+                    Some(key) => key,
+                    None => {
+                        let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
+                        let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
+                            .with_context(|| {
+                                format!("Failed to read firefox cookies from {:?}", &cookie_db_path)
+                            })?;
+                        println!("Found cookie for advent of code: {key:?}");
+                        key
+                    }
+                },
+            };
+            let puzzle_url = build_puzzle_url(cmd_year, *day)?;
+            let response = get_puzzle_input(puzzle_url, &cmd_session_key)?;
 
-    let mut input_path = match args.output {
-        Some(dir) => dir,
-        None => match config.output_path {
-            Some(dir) => dir,
-            None => PathBuf::from("inputs"),
-        },
+            let mut input_path = match output {
+                Some(dir) => dir.clone(),
+                None => match config.output_path {
+                    Some(dir) => dir,
+                    None => PathBuf::from("inputs"),
+                },
+            };
+            fs::create_dir_all(&input_path)?;
+            input_path.push(format!("{}.{:02}", cmd_year, day));
+            dbg!(&input_path);
+            let mut puzzle_file = fs::File::create(input_path)?;
+            puzzle_file.write_all(response.as_bytes())?;
+        }
     };
-    fs::create_dir_all(&input_path)?;
-    input_path.push(format!("{}.{:02}", year, args.day));
-    dbg!(&input_path);
-    let mut puzzle_file = fs::File::create(input_path)?;
-    puzzle_file.write_all(response.as_bytes())?;
 
     Ok(())
 }
