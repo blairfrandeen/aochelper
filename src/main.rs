@@ -10,6 +10,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
 const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.default/cookies.sqlite";
+const CONFIG_FILE: &str = "aochelper.toml";
 // TODO: Use date functions to determine max year
 const MAX_YEAR: u16 = 2023;
 
@@ -109,7 +110,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Set a configuration variable
-    Set,
+    Set { key: String, value: String },
 
     /// Get puzzle input for a given day
     Get {
@@ -144,12 +145,29 @@ fn read_config(config_path: PathBuf) -> Result<Config> {
     Ok(config)
 }
 
+fn set_config_option(key: &str, value: &str) -> Result<()> {
+    let mut config = read_config(PathBuf::from(CONFIG_FILE))?;
+
+    match key {
+        "year" => config.year = Some(value.parse::<u16>()?),
+        "session_key" => config.session_key = Some(value.to_string()),
+        "output_path" => config.output_path = Some(PathBuf::from(value)),
+        _ => return Err(anyhow::anyhow!("Invalid key specified!")),
+    }
+
+    let config_toml = toml::to_string(&config)?;
+    let mut config_file = fs::File::create(PathBuf::from(CONFIG_FILE))?;
+    config_file.write_all(config_toml.as_bytes())?;
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     // println!("Found Firefox cookies at {cookie_db_path:?}");
     let args = Cli::parse();
     match &args.command {
-        Commands::Set => {
-            todo!();
+        Commands::Set { key, value } => {
+            set_config_option(key, value)?;
         }
         Commands::Get {
             day,
@@ -157,7 +175,7 @@ fn main() -> Result<()> {
             output,
             session_key,
         } => {
-            let config = read_config(PathBuf::from("aochelper.toml"))?;
+            let config = read_config(PathBuf::from(CONFIG_FILE))?;
             let cmd_year = match year {
                 Some(yr) => *yr,
                 None => match &config.year {
