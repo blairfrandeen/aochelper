@@ -7,6 +7,7 @@ use clap::Parser;
 use glob::glob;
 use reqwest::blocking::Client;
 use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
 
 const COOKIE_GLOB: &str = "/home/*/snap/firefox/common/.mozilla/firefox/*.default/cookies.sqlite";
 // TODO: Use date functions to determine max year
@@ -100,12 +101,30 @@ fn build_puzzle_url(year: u16, day: u8) -> Result<String> {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    year: u16,
     day: u8,
+
+    /// Puzzle year if not supplied in aochelper.toml
+    #[clap(short, long, value_name = "YEAR")]
+    year: Option<u16>,
 
     /// Directory to which to write inputs
     #[clap(short, long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct Config {
+    year: Option<u16>,
+    session_key: Option<String>,
+    output_path: Option<PathBuf>,
+}
+
+fn read_config(config_path: PathBuf) -> Result<Config> {
+    let mut config_file = fs::File::open(config_path)?;
+    let mut config_buf = String::new();
+    config_file.read_to_string(&mut config_buf)?;
+    let config: Config = toml::from_str(&config_buf)?;
+    Ok(config)
 }
 
 fn main() -> Result<()> {
@@ -115,15 +134,24 @@ fn main() -> Result<()> {
         .with_context(|| format!("Failed to read firefox cookies from {:?}", &cookie_db_path))?;
     // println!("Found cookie for advent of code: {cookie:?}");
     let args = Args::parse();
-    let puzzle_url = build_puzzle_url(args.year, args.day)?;
+    let config = read_config(PathBuf::from("aochelper.toml"))?;
+    let year = match args.year {
+        Some(yr) => yr,
+        None => match config.year {
+            Some(yr) => yr,
+            None => return Err(anyhow::anyhow!("No year specified!")),
+        },
+    };
+    let puzzle_url = build_puzzle_url(year, args.day)?;
     let response = get_puzzle_input(puzzle_url, &cookie)?;
+    dbg!(config);
 
     let mut input_path = match args.output {
         Some(dir) => dir,
         None => PathBuf::from("inputs"),
     };
     fs::create_dir_all(&input_path)?;
-    input_path.push(format!("{}.{:02}", args.year, args.day));
+    input_path.push(format!("{}.{:02}", year, args.day));
     dbg!(&input_path);
     let mut puzzle_file = fs::File::create(input_path)?;
     puzzle_file.write_all(response.as_bytes())?;
