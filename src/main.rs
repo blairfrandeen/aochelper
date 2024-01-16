@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use env_logger;
 use glob::glob;
+use log;
 use reqwest::blocking::Client;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -67,6 +69,7 @@ fn read_ff_host_cookie(db_path: &PathBuf, hostname: &str) -> Result<String> {
 }
 
 fn get_puzzle_input(puzzle_url: String, cookie: &str) -> Result<String> {
+    log::debug!("Querying puzzle input from {puzzle_url}");
     let client = Client::new();
     let mut res = client
         .get(&puzzle_url)
@@ -138,10 +141,11 @@ struct Config {
 }
 
 fn read_config(config_path: PathBuf) -> Result<Config> {
-    let mut config_file = fs::File::open(config_path)?;
+    let mut config_file = fs::File::open(&config_path)?;
     let mut config_buf = String::new();
     config_file.read_to_string(&mut config_buf)?;
     let config: Config = toml::from_str(&config_buf)?;
+    log::debug!("Read configuration file from {:?}", config_file);
     Ok(config)
 }
 
@@ -158,12 +162,14 @@ fn set_config_option(key: &str, value: &str) -> Result<()> {
     let config_toml = toml::to_string(&config)?;
     let mut config_file = fs::File::create(PathBuf::from(CONFIG_FILE))?;
     config_file.write_all(config_toml.as_bytes())?;
+    log::debug!("Updated local config file: {:?}", config_file);
+    log::debug!("Set {} = {}", key, value);
 
     Ok(())
 }
 
 fn main() -> Result<()> {
-    // println!("Found Firefox cookies at {cookie_db_path:?}");
+    env_logger::init();
     let args = Cli::parse();
     match &args.command {
         Commands::Set { key, value } => {
@@ -179,7 +185,10 @@ fn main() -> Result<()> {
             let cmd_year = match year {
                 Some(yr) => *yr,
                 None => match &config.year {
-                    Some(yr) => *yr,
+                    Some(yr) => {
+                        log::debug!("Found year = {} from local config", yr);
+                        *yr
+                    }
                     None => return Err(anyhow::anyhow!("No year specified!")),
                 },
             };
@@ -187,14 +196,19 @@ fn main() -> Result<()> {
             let cmd_session_key = match session_key {
                 Some(key) => key.clone(),
                 None => match config.session_key {
-                    Some(key) => key,
+                    Some(key) => {
+                        log::debug!("Found session key from local config");
+                        key
+                    }
                     None => {
+                        log::debug!("No session key found in local config, attempting to read from browser cookie store");
                         let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
+                        log::debug!("Found Firefox cookies at {cookie_db_path:?}");
                         let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
                             .with_context(|| {
                                 format!("Failed to read firefox cookies from {:?}", &cookie_db_path)
                             })?;
-                        println!("Found cookie for advent of code: {key:?}");
+                        log::debug!("Found cookie for advent of code from Firefox.");
                         key
                     }
                 },
@@ -211,7 +225,7 @@ fn main() -> Result<()> {
             };
             fs::create_dir_all(&input_path)?;
             input_path.push(format!("{}.{:02}", cmd_year, day));
-            dbg!(&input_path);
+            log::info!("Successfully wrote to {}", &input_path.display());
             let mut puzzle_file = fs::File::create(input_path)?;
             puzzle_file.write_all(response.as_bytes())?;
         }
