@@ -58,7 +58,9 @@ fn read_ff_host_cookie(db_path: &PathBuf, hostname: &str) -> Result<String> {
             .expect("Error with sqlite query execution");
         match res.next()? {
             Some(row) => key = row.get(1)?,
-            None => return Err(anyhow::anyhow!("No cookie found for '{hostname}'. You may need to log in via the web browswer first.")),
+            None => return Err(anyhow::anyhow!(
+                    "No cookie found for '{hostname}'. You may need to log in via the web browswer first."
+                    )),
         };
     }
     match fs::remove_file(&tmp_db_path) {
@@ -112,10 +114,21 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Set a configuration variable
+    /// Set a configuration variable. An optional, local per-folder configuration is
+    /// stored in 'aochelper.toml'.
+    ///
+    /// The following variables that can be set with this command:
+    ///
+    ///     year:           Year to download puzzle inputs from
+    ///
+    ///     session_key:    Session cookie, which can be pulled from your browser's
+    ///                     cookie database, or by inspecting a GET request while logged
+    ///                     into adventofcode.com
+    ///
+    ///     output_path:    Folder where puzzle inputs will be downloaded to.
     Set { key: String, value: String },
 
-    /// Get puzzle input for a given day
+    /// Get puzzle input for a given day.
     Get {
         day: u8,
 
@@ -196,7 +209,12 @@ fn get_cmd(
                 log::debug!("Found year = {} from local config", yr);
                 *yr
             }
-            None => return Err(anyhow::anyhow!("No year specified!")),
+            None => {
+                return Err(anyhow::anyhow!(
+                    "No year specified. You can re-run this command with the \
+                     --year=<year> flag, or run `aochelper set year <year>` to permanently set it."
+                ))
+            }
         },
     };
 
