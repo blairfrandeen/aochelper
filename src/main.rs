@@ -168,6 +168,62 @@ fn set_config_option(key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn get_cmd(
+    day: &u8,
+    year: &Option<u16>,
+    output: &Option<PathBuf>,
+    session_key: &Option<String>,
+) -> Result<()> {
+    let config = read_config(PathBuf::from(CONFIG_FILE))?;
+    let cmd_year = match year {
+        Some(yr) => *yr,
+        None => match &config.year {
+            Some(yr) => {
+                log::debug!("Found year = {} from local config", yr);
+                *yr
+            }
+            None => return Err(anyhow::anyhow!("No year specified!")),
+        },
+    };
+
+    let cmd_session_key = match session_key {
+        Some(key) => key.clone(),
+        None => match config.session_key {
+            Some(key) => {
+                log::debug!("Found session key from local config");
+                key
+            }
+            None => {
+                log::debug!("No session key found in local config, attempting to read from browser cookie store");
+                let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
+                log::debug!("Found Firefox cookies at {cookie_db_path:?}");
+                let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com").with_context(
+                    || format!("Failed to read firefox cookies from {:?}", &cookie_db_path),
+                )?;
+                log::debug!("Found cookie for advent of code from Firefox.");
+                key
+            }
+        },
+    };
+    let puzzle_url = build_puzzle_url(cmd_year, *day)?;
+    let response = get_puzzle_input(puzzle_url, &cmd_session_key)?;
+
+    let mut input_path = match output {
+        Some(dir) => dir.clone(),
+        None => match config.output_path {
+            Some(dir) => dir,
+            None => PathBuf::from("inputs"),
+        },
+    };
+    fs::create_dir_all(&input_path)?;
+    input_path.push(format!("{}.{:02}", cmd_year, day));
+    log::info!("Successfully wrote to {}", &input_path.display());
+    let mut puzzle_file = fs::File::create(input_path)?;
+    puzzle_file.write_all(response.as_bytes())?;
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::init();
     let args = Cli::parse();
@@ -181,53 +237,7 @@ fn main() -> Result<()> {
             output,
             session_key,
         } => {
-            let config = read_config(PathBuf::from(CONFIG_FILE))?;
-            let cmd_year = match year {
-                Some(yr) => *yr,
-                None => match &config.year {
-                    Some(yr) => {
-                        log::debug!("Found year = {} from local config", yr);
-                        *yr
-                    }
-                    None => return Err(anyhow::anyhow!("No year specified!")),
-                },
-            };
-
-            let cmd_session_key = match session_key {
-                Some(key) => key.clone(),
-                None => match config.session_key {
-                    Some(key) => {
-                        log::debug!("Found session key from local config");
-                        key
-                    }
-                    None => {
-                        log::debug!("No session key found in local config, attempting to read from browser cookie store");
-                        let cookie_db_path = find_firefox_cookie(COOKIE_GLOB)?;
-                        log::debug!("Found Firefox cookies at {cookie_db_path:?}");
-                        let key = read_ff_host_cookie(&cookie_db_path, ".adventofcode.com")
-                            .with_context(|| {
-                                format!("Failed to read firefox cookies from {:?}", &cookie_db_path)
-                            })?;
-                        log::debug!("Found cookie for advent of code from Firefox.");
-                        key
-                    }
-                },
-            };
-            let puzzle_url = build_puzzle_url(cmd_year, *day)?;
-            let response = get_puzzle_input(puzzle_url, &cmd_session_key)?;
-
-            let mut input_path = match output {
-                Some(dir) => dir.clone(),
-                None => match config.output_path {
-                    Some(dir) => dir,
-                    None => PathBuf::from("inputs"),
-                },
-            };
-            fs::create_dir_all(&input_path)?;
-            input_path.push(format!("{}.{:02}", cmd_year, day));
-            log::info!("Successfully wrote to {}", &input_path.display());
-            let mut puzzle_file = fs::File::create(input_path)?;
-            puzzle_file.write_all(response.as_bytes())?;
+            get_cmd(day, year, output, session_key)?;
         }
     };
 
