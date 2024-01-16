@@ -140,13 +140,27 @@ struct Config {
     output_path: Option<PathBuf>,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            year: None,
+            session_key: None,
+            output_path: None,
+        }
+    }
+}
+
 fn read_config(config_path: PathBuf) -> Result<Config> {
-    let mut config_file = fs::File::open(&config_path)?;
-    let mut config_buf = String::new();
-    config_file.read_to_string(&mut config_buf)?;
-    let config: Config = toml::from_str(&config_buf)?;
-    log::debug!("Read configuration file from {:?}", config_file);
-    Ok(config)
+    if config_path.exists() {
+        let mut config_file = fs::File::open(&config_path)?;
+        let mut config_buf = String::new();
+        config_file.read_to_string(&mut config_buf)?;
+        let config: Config = toml::from_str(&config_buf)?;
+        log::debug!("Read configuration file from {:?}", config_file);
+        Ok(config)
+    } else {
+        Ok(Config::default())
+    }
 }
 
 fn set_config_option(key: &str, value: &str) -> Result<()> {
