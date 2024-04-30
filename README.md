@@ -1,3 +1,4 @@
+[![Rust](https://github.com/blairfrandeen/aochelper/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/blairfrandeen/aochelper/actions/workflows/rust.yml)
 # aochelper
 
 Utility to download Advent of Code puzzle inputs.
